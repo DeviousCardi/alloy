@@ -215,6 +215,14 @@ func resolveExporterArgs(userBlock *PrometheusExporterArguments) exporter_postgr
 	if !exporterArgs.DisableDefaultMetrics && len(exporterArgs.EnabledCollectors) == 0 {
 		exporterArgs.EnabledCollectors = defaultEnabledCollectors
 	}
+	statStatements := exporter_postgres.StatStatementFlags{QueryLength: 120}
+	if exporterArgs.StatStatementFlags != nil {
+		statStatements = *exporterArgs.StatStatementFlags
+	}
+	if statStatements.Limit == 0 {
+		statStatements.Limit = 100
+	}
+	exporterArgs.StatStatementFlags = &statStatements
 	return exporterArgs
 }
 

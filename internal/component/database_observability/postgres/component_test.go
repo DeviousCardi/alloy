@@ -2160,7 +2160,7 @@ func TestPostgres_Clustering_NonOwnedReceiverDiscards(t *testing.T) {
 }
 
 func Test_resolveExporterArgs(t *testing.T) {
-	t.Run("no block at all defaults to stat_statements only", func(t *testing.T) {
+	t.Run("no block at all defaults to stat_statements only with defaults", func(t *testing.T) {
 		cfg := `
 			data_source_name = "postgresql://user:pass@localhost:5432/db"
 			forward_to = []
@@ -2169,6 +2169,9 @@ func Test_resolveExporterArgs(t *testing.T) {
 		require.NoError(t, syntax.Unmarshal([]byte(cfg), &args))
 		exporterArgs := resolveExporterArgs(args.PrometheusExporter)
 		assert.Equal(t, []string{"stat_statements"}, exporterArgs.EnabledCollectors)
+		require.NotNil(t, exporterArgs.StatStatementFlags)
+		assert.Equal(t, uint(120), exporterArgs.StatStatementFlags.QueryLength)
+		assert.Equal(t, uint(100), exporterArgs.StatStatementFlags.Limit)
 	})
 
 	t.Run("block present with sub-block settings but enabled_collectors untouched", func(t *testing.T) {
