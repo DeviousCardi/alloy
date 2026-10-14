@@ -44,18 +44,33 @@ func (f *FanoutConsumer) Consume(ctx context.Context, batch Batch) error {
 		}
 
 		if i == len(consumers)-1 {
-			if err := consumer.Consume(ctx, batch); isReportableError(err) {
+			if err := f.consume(ctx, consumer, batch); isReportableError(err) {
 				errs = append(errs, err)
 			}
 			continue
 		}
 
-		if err := consumer.Consume(ctx, batch.Clone()); isReportableError(err) {
+		if err := f.consume(ctx, consumer, batch.Clone()); isReportableError(err) {
 			errs = append(errs, err)
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+func (f *FanoutConsumer) consume(ctx context.Context, consumer Consumer, batch Batch) error {
+	if _, ok := consumer.(chanConsumer); !ok {
+		return consumer.Consume(ctx, batch)
+	}
+
+	// A channel cannot report that its component stopped, so hold the lock
+	// like Fanout does and skip targets removed since the snapshot.
+	f.mut.RLock()
+	defer f.mut.RUnlock()
+	if !slices.Contains(f.consumers, consumer) {
+		return nil
+	}
+	return consumer.Consume(ctx, batch)
 }
 
 func (f *FanoutConsumer) Update(consumers []Consumer) {

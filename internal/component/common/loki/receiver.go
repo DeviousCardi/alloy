@@ -1,7 +1,7 @@
 package loki
 
 import (
-	"fmt"
+	"context"
 	"sync"
 )
 
@@ -51,33 +51,46 @@ func (l *logsReceiver) String() string {
 	return l.componentID + ".receiver"
 }
 
-// ConsumerFrom returns the Consumer of recv. It returns an error when recv
-// does not provide one.
-func ConsumerFrom(recv LogsReceiver) (Consumer, error) {
+// ConsumerFrom returns the Consumer of recv. When recv does not provide one,
+// the returned Consumer sends each entry on recv's channel.
+func ConsumerFrom(recv LogsReceiver) Consumer {
 	type ConsumerProvider interface {
 		Consumer() Consumer
 	}
 
 	if p, ok := recv.(ConsumerProvider); ok {
 		if c := p.Consumer(); c != nil {
-			return c, nil
+			return c
 		}
 	}
-	return nil, fmt.Errorf("%v does not support the consumer pipeline", recv)
+	return chanConsumer{recv: recv}
 }
 
-// ConsumersFrom returns the Consumer of every receiver in recvs. It returns an
-// error for the first receiver that does not provide one.
-func ConsumersFrom(recvs []LogsReceiver) ([]Consumer, error) {
+// ConsumersFrom returns the Consumer of every receiver in recvs, see
+// ConsumerFrom.
+func ConsumersFrom(recvs []LogsReceiver) []Consumer {
 	consumers := make([]Consumer, 0, len(recvs))
 	for _, recv := range recvs {
-		consumer, err := ConsumerFrom(recv)
-		if err != nil {
-			return nil, err
-		}
-		consumers = append(consumers, consumer)
+		consumers = append(consumers, ConsumerFrom(recv))
 	}
-	return consumers, nil
+	return consumers
+}
+
+type chanConsumer struct {
+	recv LogsReceiver
+}
+
+func (c chanConsumer) Consume(ctx context.Context, batch Batch) error {
+	for _, stream := range batch.Streams() {
+		for _, e := range stream.Entries {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case c.recv.Chan() <- NewEntryWithCreatedUnixMicro(stream.Labels, stream.Created(), e):
+			}
+		}
+	}
+	return nil
 }
 
 func NewLogsReceiver(opts ...LogReceiverOption) LogsReceiver {
